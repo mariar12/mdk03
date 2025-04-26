@@ -1,0 +1,242 @@
+import sys
+import os
+from PyQt6 import QtWidgets
+from PyQt6.QtWidgets import QWidget, QMessageBox
+from PyQt6.QtGui import QPixmap
+import mysql.connector
+from mysql.connector import Error
+from avtoriz import Ui_Form
+from neww import Ui_MainForm
+from corzin import Ui_CartForm
+from ad import Ui_AdminForm
+from mainm import Ui_WelcomeForm
+
+
+class AuthSystem:
+   def __init__(self):
+       self.connection = None
+       self.connect_to_db()
+
+   def connect_to_db(self):
+       try:
+           self.connection = mysql.connector.connect(
+               host='localhost',
+               database='b',
+               user='root',
+               password=''
+           )
+           return True
+       except Error as e:
+           print(f"Ошибка подключения к MySQL: {e}")
+           return False
+
+   def check_credentials(self, login, password):
+       try:
+           cursor = self.connection.cursor(dictionary=True)
+           cursor.execute(
+               "SELECT u.*, r.name as role_name FROM users u JOIN roles r ON u.role_id = r.id WHERE u.login = %s AND u.password = %s",
+               (login, password))
+           return cursor.fetchone()
+       except Error as e:
+           print(f"Ошибка при проверке учетных данных: {e}")
+           return None
+
+   def get_products(self):
+       try:
+           cursor = self.connection.cursor(dictionary=True)
+           cursor.execute("SELECT * FROM products")
+           return cursor.fetchall()
+       except Error as e:
+           print(f"Ошибка при получении продуктов: {e}")
+           return []
+
+   def get_orders(self):
+       try:
+           cursor = self.connection.cursor(dictionary=True)
+           cursor.execute("""
+               SELECT u.login, p.name, p.price
+               FROM orders o
+               JOIN users u ON o.user_id = u.id
+               JOIN products p ON o.product_id = p.id
+               ORDER BY u.login
+           """)
+           return cursor.fetchall()
+       except Error as e:
+           print(f"Ошибка при получении заказов: {e}")
+           return []
+
+
+class LoginWindow(QWidget):
+   def __init__(self):
+       super().__init__()
+       self.ui = Ui_Form()
+       self.ui.setupUi(self)
+       self.auth_system = AuthSystem()
+       self.ui.pushButton.clicked.connect(self.handle_login)
+
+   def handle_login(self):
+       login = self.ui.lineEdit.text()
+       password = self.ui.lineEdit_2.text()
+
+       if not login or not password:
+           QMessageBox.warning(self, "Ошибка", "Введите логин и пароль")
+           return
+
+       user = self.auth_system.check_credentials(login, password)
+       if user:
+           if user['role_name'] == 'admin':
+               self.open_admin_window(user)
+           else:
+               self.open_welcome_window(user)
+       else:
+           QMessageBox.warning(self, "Ошибка", "Неверный логин или пароль")
+
+   def open_welcome_window(self, user):
+       self.close()
+       self.welcome_window = WelcomeWindow(user, self.auth_system)
+       self.welcome_window.show()
+
+   def open_admin_window(self, user):
+       self.close()
+       self.admin_window = AdminWindow(user, self.auth_system)
+       self.admin_window.show()
+
+
+class WelcomeWindow(QWidget):
+   def __init__(self, user, auth_system):
+       super().__init__()
+       self.user = user
+       self.auth_system = auth_system
+       self.ui = Ui_WelcomeForm()
+       self.ui.setupUi(self)
+       self.ui.pushButton.clicked.connect(self.open_main_window)
+
+   def open_main_window(self):
+       self.close()
+       self.main_window = MainWindow(self.user, self.auth_system)
+       self.main_window.show()
+
+
+class MainWindow(QWidget):
+   def __init__(self, user, auth_system):
+       super().__init__()
+       self.user = user
+       self.auth_system = auth_system
+       self.cart = []
+       self.ui = Ui_MainForm()
+       self.ui.setupUi(self)
+       self.setup_products()
+       self.ui.pushButton.clicked.connect(self.add_to_cart)
+       self.ui.pushButton_2.clicked.connect(self.show_cart)
+
+   def setup_products(self):
+       products = self.auth_system.get_products()
+       checkboxes = [self.ui.checkBox, self.ui.checkBox_2,
+                     self.ui.checkBox_3, self.ui.checkBox_4]
+       image_labels = [self.ui.label, self.ui.label_2,
+                       self.ui.label_3, self.ui.label_4]
+
+       for i, product in enumerate(products[:4]):
+           if i < len(checkboxes):
+               checkboxes[i].setText(f"{product['name']} - {product['price']} руб.")
+               checkboxes[i].product = product
+               if product.get('image_path'):
+                   self.load_product_image(image_labels[i], product['image_path'])
+
+   def load_product_image(self, label, image_path):
+       if os.path.exists(image_path):
+           pixmap = QPixmap(image_path)
+           label.setPixmap(pixmap)
+           label.setScaledContents(True)
+
+   def add_to_cart(self):
+       checkboxes = [self.ui.checkBox, self.ui.checkBox_2,
+                     self.ui.checkBox_3, self.ui.checkBox_4]
+       added = 0
+       for checkbox in checkboxes:
+           if hasattr(checkbox, 'product') and checkbox.isChecked():
+               self.cart.append(checkbox.product)
+               checkbox.setChecked(False)
+               added += 1
+       if added > 0:
+           QMessageBox.information(self, "Успех", f"Добавлено {added} товаров в корзину")
+
+   def show_cart(self):
+       if not self.cart:
+           QMessageBox.information(self, "Корзина", "Ваша корзина пуста")
+           return
+       self.cart_window = CartWindow(self.cart, self.user, self.auth_system)
+       self.cart_window.show()
+
+
+class CartWindow(QWidget):
+   def __init__(self, cart, user, auth_system):
+       super().__init__()
+       self.cart = cart.copy()
+       self.user = user
+       self.auth_system = auth_system
+       self.ui = Ui_CartForm()
+       self.ui.setupUi(self)
+       self.display_cart_items()
+       self.ui.pushButton.clicked.connect(self.process_payment)
+
+   def display_cart_items(self):
+       cart_text = ""
+       total = 0.0
+       for item in self.cart:
+           price = float(item['price']) if hasattr(item['price'], 'to_eng_string') else item['price']
+           cart_text += f"{item['name']} - {price:.2f} руб.\n"
+           total += price
+       cart_text += f"\nИтого: {total:.2f} руб."
+       self.ui.textBrowser.setText(cart_text)
+
+   def process_payment(self):
+       try:
+           cursor = self.auth_system.connection.cursor()
+           for item in self.cart:
+               cursor.execute(
+                   "INSERT INTO orders (user_id, product_id) VALUES (%s, %s)",
+                   (self.user['id'], item['id'])
+               )
+           self.auth_system.connection.commit()
+           total = sum(float(item['price']) if hasattr(item['price'], 'to_eng_string') else item['price']
+                       for item in self.cart)
+           QMessageBox.information(self, "Оплата", f"Оплачено {total:.2f} руб.\nСпасибо за покупку!")
+           self.close()
+       except Error as e:
+           QMessageBox.critical(self, "Ошибка", f"Не удалось обработать заказ:\n{str(e)}")
+
+
+class AdminWindow(QWidget):
+   def __init__(self, user, auth_system):
+       super().__init__()
+       self.user = user
+       self.auth_system = auth_system
+       self.ui = Ui_AdminForm()
+       self.ui.setupUi(self)
+       self.load_orders()
+
+   def load_orders(self):
+       orders = self.auth_system.get_orders()
+       if not orders:
+           self.ui.textBrowser.setText("Нет заказов")
+           return
+       orders_text = ""
+       current_user = None
+       for order in orders:
+           if order['login'] != current_user:
+               current_user = order['login']
+               orders_text += f"\nПользователь: {current_user}\n"
+           orders_text += f"- {order['name']} ({order['price']} руб.)\n"
+       self.ui.textBrowser.setText(orders_text.strip())
+
+
+if __name__ == "__main__":
+   app = QtWidgets.QApplication(sys.argv)
+   auth = AuthSystem()
+   if not auth.connection or not auth.connection.is_connected():
+       QMessageBox.critical(None, "Ошибка", "Не удалось подключиться к базе данных.")
+       sys.exit(1)
+   window = LoginWindow()
+   window.show()
+   sys.exit(app.exec())
