@@ -1,0 +1,83 @@
+-- 1. Таблица цехов
+CREATE TABLE workshops (
+    workshop_id INT PRIMARY KEY AUTO_INCREMENT,
+    workshop_name VARCHAR(50) NOT NULL,
+    workers_count INT NOT NULL,
+    description TEXT,
+    base_processing_time INT DEFAULT 60 COMMENT 'Базовое время обработки в минутах'
+);
+
+-- 2. Таблица типов продукции
+CREATE TABLE product_types (
+    type_id INT PRIMARY KEY AUTO_INCREMENT,
+    type_name VARCHAR(50) NOT NULL,
+    production_coefficient DECIMAL(5,2) DEFAULT 1.00 COMMENT 'Коэффициент сложности производства'
+);
+
+-- 3. Таблица материалов
+CREATE TABLE materials (
+    material_id INT PRIMARY KEY AUTO_INCREMENT,
+    material_name VARCHAR(50) NOT NULL,
+    unit VARCHAR(10) NOT NULL COMMENT 'Единица измерения',
+    loss_percent DECIMAL(5,2) DEFAULT 0.00 COMMENT 'Процент потерь при обработке'
+);
+
+-- 4. Таблица продукции (главная сущность)
+CREATE TABLE products (
+    product_id INT PRIMARY KEY AUTO_INCREMENT,
+    product_name VARCHAR(100) NOT NULL,
+    article VARCHAR(20) UNIQUE,
+    type_id INT NOT NULL,
+    min_price DECIMAL(10,2),
+    param1 DECIMAL(10,2) COMMENT 'Параметр 1 (длина в метрах)',
+    param2 DECIMAL(10,2) COMMENT 'Параметр 2 (ширина в метрах)',
+    total_production_time INT DEFAULT 0 COMMENT 'Суммарное время производства (вводится вручную)',
+    FOREIGN KEY (type_id) REFERENCES product_types(type_id)
+);
+
+-- 5. Таблица связи продукции и цехов (временные затраты)
+CREATE TABLE product_workshops (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    product_id INT NOT NULL,
+    workshop_id INT NOT NULL,
+    time_spent INT NOT NULL COMMENT 'Время в минутах (вводится вручную)',
+    FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE,
+    FOREIGN KEY (workshop_id) REFERENCES workshops(workshop_id),
+    UNIQUE (product_id, workshop_id) -- Один цех для продукта только один раз
+);
+
+-- 6. Таблица материалов для продукции
+CREATE TABLE product_materials (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    product_id INT NOT NULL,
+    material_id INT NOT NULL,
+    quantity_per_unit DECIMAL(10,2) NOT NULL COMMENT 'Количество на единицу продукции',
+    FOREIGN KEY (product_id) REFERENCES products(product_id) ON DELETE CASCADE,
+    FOREIGN KEY (material_id) REFERENCES materials(material_id)
+);
+
+-- Таблица партнеров
+CREATE TABLE partners (
+    partner_id INT PRIMARY KEY AUTO_INCREMENT,
+    partner_type VARCHAR(50) NOT NULL COMMENT 'Тип партнера (поставщик, клиент и т.д.)',
+    company_name VARCHAR(100) NOT NULL COMMENT 'Наименование компании',
+    legal_address TEXT NOT NULL COMMENT 'Юридический адрес',
+    inn VARCHAR(12) NOT NULL COMMENT 'ИНН',
+    director_name VARCHAR(100) NOT NULL COMMENT 'ФИО директора',
+    phone VARCHAR(20) NOT NULL COMMENT 'Контактный телефон',
+    email VARCHAR(100) NOT NULL COMMENT 'Контактный email'
+);
+
+-- Таблица заявок
+CREATE TABLE applications (
+    application_id INT PRIMARY KEY AUTO_INCREMENT,
+    partner_id INT NOT NULL COMMENT 'ID партнера',
+    product_id INT NOT NULL COMMENT 'ID продукта',
+    material_id INT NOT NULL COMMENT 'ID материала',
+    quantity DECIMAL(10,2) NOT NULL COMMENT 'Количество',
+    status ENUM('новая', 'в обработке', 'выполнена', 'отменена') DEFAULT 'новая' COMMENT 'Статус заявки',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP COMMENT 'Дата создания заявки',
+    FOREIGN KEY (partner_id) REFERENCES partners(partner_id),
+    FOREIGN KEY (product_id) REFERENCES products(product_id),
+    FOREIGN KEY (material_id) REFERENCES materials(material_id)
+);
